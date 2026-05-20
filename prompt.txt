@@ -1,35 +1,179 @@
-You are an expert in the Splunk UCC (Universal Configuration Console) framework, specifically the addonfactory-ucc-generator project.
-I will provide you with a globalConfig.json file that was extracted from the build output of a UCC add-on (found at output/<addon_name>/appserver/static/js/build/globalConfig.json).
-Your task is to convert it back into a clean source-version of globalConfig.json suitable for committing to a git repository as the input to ucc-gen build.
-Rules for the conversion:
-Strip UCC-injected metadata from the meta block:
-Remove meta.version (this gets set at build time via --ta-version or app.manifest)
-Remove meta.schemaVersion (UCC stamps this automatically)
-Keep meta.name, meta.displayName, meta.restRoot, meta.apiVersion, and other author-defined fields
-Remove generated REST handler paths and internal wiring that UCC adds during build. Specifically, strip any auto-generated restHandlerName, restHandlerModule, or restHandlerClass entries unless they reference a custom handler the developer clearly wrote themselves (custom handlers usually have non-default module names that don't start with splunktaucclib or UCC defaults).
-Preserve all structural content exactly:
-All pages (configuration tabs, inputs, dashboard)
-All entity field definitions with their field, label, type, help, required, defaultValue, validators, options
-All tabs and their ordering
-All inputs.services definitions
-All custom control references (type: "custom" with options.src pointing to files in appserver/static/js/build/custom/)
-OAuth configuration, proxy settings, logging settings, custom config tabs
-Do not invent or remove fields that affect behavior. If you're unsure whether a field is UCC-injected or author-written, keep it and add a comment-style note in your response (not in the JSON itself) listing fields you were uncertain about.
-Format the output:
-Pretty-printed with 4-space indentation
-Valid JSON, no comments inside the file
-Sort top-level keys in this order: meta, pages, inputs, then any others alphabetically
-After the JSON output, provide a brief checklist of related source files the developer will need to recreate alongside this globalConfig.json to have a working source repo. At minimum mention:
-package/app.manifest
-package/bin/<input_name>.py for each input service defined
-package/lib/requirements.txt
-package/default/ for any hand-written conf overrides (e.g. predefined inputs.conf stanzas)
-appserver/static/js/build/custom/<file>.js for any custom controls referenced
-Output format:
-First, the cleaned globalConfig.json inside a single fenced code block tagged json.
-Then a section titled "Notes" listing:
-Any UCC-injected fields you removed
-Any fields you were uncertain about and kept
-Any custom controls or custom REST handlers referenced that the developer will need to provide separately
-Here is the output globalConfig.json to convert:
-Json
+Perfect, you're already set up then. Let's go through the steps tailored for your WSL Ubuntu setup.
+
+**Step 1: Verify your Ubuntu environment**
+
+Open your Ubuntu terminal (from Start menu or `wsl` in PowerShell):
+
+```bash
+python3 --version
+pip3 --version
+```
+
+If Python is missing or below 3.7, install it:
+
+```bash
+sudo apt update
+sudo apt install python3 python3-pip python3-venv -y
+```
+
+Also make sure Docker Desktop on Windows has WSL integration enabled for Ubuntu:
+- Open Docker Desktop on Windows
+- Settings, Resources, WSL Integration
+- Toggle on for Ubuntu
+- Apply & Restart
+
+Verify from Ubuntu:
+
+```bash
+docker --version
+docker ps
+```
+
+**Step 2: Set up your project folder**
+
+Important: work inside the Ubuntu filesystem, not on `/mnt/c/`. Files in `/mnt/c/` (your Windows drive) are 10-20x slower from WSL and cause weird permission issues with `ucc-gen`.
+
+```bash
+mkdir -p ~/code
+cd ~/code
+python3 -m venv .venv-ucc
+source .venv-ucc/bin/activate
+pip install --upgrade pip
+pip install splunk-add-on-ucc-framework
+ucc-gen --help
+```
+
+If you want to access these files from Windows Explorer or VS Code, just use `\\wsl$\Ubuntu\home\<your-username>\code` in Explorer, or open the folder in VS Code with the "WSL" extension (VS Code will prompt you).
+
+**Step 3: Initialize the new add-on**
+
+```bash
+cd ~/code
+ucc-gen init \
+  --addon-name "Splunk_TA_MyNewAddon" \
+  --addon-display-name "My New Addon" \
+  --addon-input-name my_input \
+  --addon-rest-root my_new_addon
+
+cd Splunk_TA_MyNewAddon
+ls -la
+```
+
+You should see `globalConfig.json`, `package/`, and supporting files.
+
+**Step 4: Sanity-check build**
+
+```bash
+ucc-gen build --ta-version 1.0.0
+ls output/
+```
+
+If `output/Splunk_TA_MyNewAddon/` appears with `default/`, `bin/`, `appserver/`, your toolchain is working.
+
+**Step 5: Bring in your old code for reference**
+
+If your old broken repo is on the Windows side (e.g. `C:\Users\you\old_addon`), copy it into WSL so diffing is fast:
+
+```bash
+cp -r /mnt/c/Users/<your-windows-username>/path/to/old_addon ~/code/old_addon_reference
+```
+
+Now you have:
+
+```
+~/code/
+├── .venv-ucc/
+├── Splunk_TA_MyNewAddon/      ← new clean scaffold
+└── old_addon_reference/       ← your broken old code, for reference only
+```
+
+Open both in VS Code (`code .` from `~/code`) for side-by-side diffing.
+
+**Step 6: Port files one section at a time**
+
+Follow the order from my previous message:
+
+1. Port `globalConfig.json` section by section (meta stays from scaffold, copy `pages.configuration.tabs`, then `pages.inputs.services`, then `pages.dashboard`)
+2. After each section, run `ucc-gen build --ta-version 1.0.0` to catch issues
+3. Copy `package/bin/my_input.py` from old to new
+4. Copy `package/lib/requirements.txt`
+5. Copy any `package/default/*.conf` you hand-wrote (your predefined disabled inputs)
+6. Copy any custom controls from `package/appserver/static/js/build/custom/`
+
+**Step 7: Run Splunk in Docker with bind mount**
+
+From `~/code/Splunk_TA_MyNewAddon`:
+
+```bash
+docker run -d --name splunk-dev \
+  -p 8000:8000 -p 8089:8089 \
+  -e SPLUNK_PASSWORD=Changeme123 \
+  -e SPLUNK_START_ARGS=--accept-license \
+  -v $(pwd)/output/Splunk_TA_MyNewAddon:/opt/splunk/etc/apps/Splunk_TA_MyNewAddon \
+  splunk/splunk:latest
+```
+
+Wait about 60 seconds (`docker logs -f splunk-dev` to watch startup), then open `http://localhost:8000` in your Windows browser. Login: `admin` / `Changeme123`. Your add-on should be in the apps list.
+
+**Step 8: Create a Makefile for the dev loop**
+
+Save this as `Makefile` in `~/code/Splunk_TA_MyNewAddon/`:
+
+```makefile
+VERSION ?= 1.0.0
+CONTAINER = splunk-dev
+
+build:
+	ucc-gen build --ta-version $(VERSION)
+
+restart:
+	docker exec $(CONTAINER) /opt/splunk/bin/splunk restart
+
+deploy: build restart
+	@echo "Deployed. Hard refresh your browser."
+
+logs:
+	docker exec -it $(CONTAINER) tail -f /opt/splunk/var/log/splunk/splunk_ta_mynewaddon_my_input.log
+
+shell:
+	docker exec -it $(CONTAINER) bash
+
+splunk-start:
+	docker start $(CONTAINER)
+
+splunk-stop:
+	docker stop $(CONTAINER)
+```
+
+If you don't have `make`:
+
+```bash
+sudo apt install make -y
+```
+
+Now your dev loop is:
+
+```bash
+# Edit source files in VS Code...
+make deploy
+# Hard refresh browser (Ctrl+Shift+R)
+```
+
+To watch input logs in real time in a second terminal:
+
+```bash
+make logs
+```
+
+**Step 9: WSL-specific gotchas to know about**
+
+- **Line endings**: if you ever copy files from Windows and they have CRLF endings, Python in the Splunk container may complain. Fix with `dos2unix <file>` (install: `sudo apt install dos2unix`).
+- **File permissions**: files created on Windows side and viewed from WSL sometimes show as `777`. Usually harmless but can confuse Splunk. Stick to creating/editing inside WSL.
+- **Localhost works seamlessly**: `localhost:8000` from your Windows browser hits the Docker container running under WSL. No port forwarding needed.
+- **VS Code**: install the "WSL" extension on Windows VS Code. Then in Ubuntu terminal type `code .` and it opens VS Code on Windows attached to your WSL files. Best of both worlds.
+
+**Suggested first milestone today**
+
+Just get to "scaffold runs in Splunk and I can see the empty Configuration tab". That validates your whole toolchain end to end. Then you start porting.
+
+Once you've done the `ucc-gen init` and the first `ucc-gen build`, let me know what your old `globalConfig.json` looks like (paste the structure) and I'll help map the porting.
