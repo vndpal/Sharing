@@ -177,3 +177,126 @@ make logs
 Just get to "scaffold runs in Splunk and I can see the empty Configuration tab". That validates your whole toolchain end to end. Then you start porting.
 
 Once you've done the `ucc-gen init` and the first `ucc-gen build`, let me know what your old `globalConfig.json` looks like (paste the structure) and I'll help map the porting.
+
+
+**Step 7: Deploy to your local Splunk**
+
+You already did the one-time permissions fix on `C:\Program Files\Splunk\etc\apps\`. Now create `Makefile` in your project root (`~/code/Splunk_TA_MyNewAddon/Makefile`):
+
+```makefile
+VERSION ?= 1.0.0
+ADDON = Splunk_TA_MyNewAddon
+SPLUNK_APPS = /mnt/c/Program Files/Splunk/etc/apps
+SPLUNK_BIN = /mnt/c/Program Files/Splunk/bin/splunk.exe
+
+deploy:
+	ucc-gen build --ta-version $(VERSION)
+	rm -rf "$(SPLUNK_APPS)/$(ADDON)"
+	cp -r "output/$(ADDON)" "$(SPLUNK_APPS)/"
+	"$(SPLUNK_BIN)" restart
+	@echo "Done. Refresh http://127.0.0.1:8000"
+```
+
+Install make if missing:
+
+```bash
+sudo apt install make -y
+```
+
+Run it:
+
+```bash
+make deploy
+```
+
+Wait for Splunk to finish restarting (about 30-60 seconds). Then open `http://127.0.0.1:8000` in your Windows browser. Your add-on should appear in the Apps dropdown.
+
+**Step 8: Verify the add-on loaded correctly**
+
+Click your add-on from the Apps menu. You should see the Configuration and Inputs tabs from your `globalConfig.json`. Click around, confirm the fields render.
+
+If it doesn't appear or shows errors, check the Splunk log:
+
+```bash
+tail -100 "/mnt/c/Program Files/Splunk/var/log/splunk/splunkd.log" | grep -i "Splunk_TA_MyNewAddon\|error"
+```
+
+Common issues:
+- Malformed `globalConfig.json`: fix the JSON, rebuild
+- Missing required field in `app.manifest`: compare with the scaffold's original
+- File permission issues: re-do the Windows folder permissions step
+
+**Step 9: Create your first input and watch it run**
+
+In the Splunk UI for your add-on:
+
+1. Go to Configuration tab, set up an account or credentials if your input needs them
+2. Go to Inputs tab, click "Create New Input"
+3. Fill in the form (name, interval, any custom fields)
+4. Save
+
+Now watch the modular input log to confirm it ran:
+
+```bash
+tail -f "/mnt/c/Program Files/Splunk/var/log/splunk/splunk_ta_mynewaddon_my_input.log"
+```
+
+You should see log lines when the input fires (immediately on save, then every `interval` seconds).
+
+**Step 10: Verify data landed in Splunk**
+
+In Splunk Web, go to Search & Reporting. Run:
+
+```
+index=* sourcetype=<your_sourcetype> earliest=-15m
+```
+
+(Replace `<your_sourcetype>` with whatever your input writes to.) If you see events, the full pipeline works.
+
+**Step 11: Iterate**
+
+From now on, the loop is:
+
+```bash
+# edit code in VS Code
+make deploy
+# hard refresh browser (Ctrl+Shift+R)
+```
+
+For pure Python changes in `bin/`, you can often skip the full restart and just do `make deploy` minus the restart line; the next scheduled run picks up the new code. But until you're comfortable, just run `make deploy` every time.
+
+**Step 12: Commit to git**
+
+```bash
+cd ~/code/Splunk_TA_MyNewAddon
+git init
+```
+
+Create `.gitignore`:
+
+```
+output/
+__pycache__/
+*.pyc
+.venv*/
+.DS_Store
+```
+
+Create `.gitattributes` (avoids line-ending issues for any teammates on Windows-native):
+
+```
+* text=auto eol=lf
+```
+
+Then:
+
+```bash
+git add .
+git commit -m "Initial UCC scaffold with ported configuration"
+git remote add origin <your-repo-url>
+git push -u origin main
+```
+
+You're done. From here it's normal dev: edit, `make deploy`, test, commit, push.
+
+If something doesn't work at any step, paste the error and I'll help debug.
