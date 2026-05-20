@@ -1,0 +1,35 @@
+You are an expert in the Splunk UCC (Universal Configuration Console) framework, specifically the addonfactory-ucc-generator project.
+I will provide you with a globalConfig.json file that was extracted from the build output of a UCC add-on (found at output/<addon_name>/appserver/static/js/build/globalConfig.json).
+Your task is to convert it back into a clean source-version of globalConfig.json suitable for committing to a git repository as the input to ucc-gen build.
+Rules for the conversion:
+Strip UCC-injected metadata from the meta block:
+Remove meta.version (this gets set at build time via --ta-version or app.manifest)
+Remove meta.schemaVersion (UCC stamps this automatically)
+Keep meta.name, meta.displayName, meta.restRoot, meta.apiVersion, and other author-defined fields
+Remove generated REST handler paths and internal wiring that UCC adds during build. Specifically, strip any auto-generated restHandlerName, restHandlerModule, or restHandlerClass entries unless they reference a custom handler the developer clearly wrote themselves (custom handlers usually have non-default module names that don't start with splunktaucclib or UCC defaults).
+Preserve all structural content exactly:
+All pages (configuration tabs, inputs, dashboard)
+All entity field definitions with their field, label, type, help, required, defaultValue, validators, options
+All tabs and their ordering
+All inputs.services definitions
+All custom control references (type: "custom" with options.src pointing to files in appserver/static/js/build/custom/)
+OAuth configuration, proxy settings, logging settings, custom config tabs
+Do not invent or remove fields that affect behavior. If you're unsure whether a field is UCC-injected or author-written, keep it and add a comment-style note in your response (not in the JSON itself) listing fields you were uncertain about.
+Format the output:
+Pretty-printed with 4-space indentation
+Valid JSON, no comments inside the file
+Sort top-level keys in this order: meta, pages, inputs, then any others alphabetically
+After the JSON output, provide a brief checklist of related source files the developer will need to recreate alongside this globalConfig.json to have a working source repo. At minimum mention:
+package/app.manifest
+package/bin/<input_name>.py for each input service defined
+package/lib/requirements.txt
+package/default/ for any hand-written conf overrides (e.g. predefined inputs.conf stanzas)
+appserver/static/js/build/custom/<file>.js for any custom controls referenced
+Output format:
+First, the cleaned globalConfig.json inside a single fenced code block tagged json.
+Then a section titled "Notes" listing:
+Any UCC-injected fields you removed
+Any fields you were uncertain about and kept
+Any custom controls or custom REST handlers referenced that the developer will need to provide separately
+Here is the output globalConfig.json to convert:
+Json
